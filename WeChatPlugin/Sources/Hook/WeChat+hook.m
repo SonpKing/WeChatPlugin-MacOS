@@ -414,6 +414,8 @@
         //        该消息为公众号或者本人发送的消息
         return;
     }
+    static BOOL cnt=NO;
+    cnt=NO;
     NSArray *autoReplyModels = [[TKWeChatPluginConfig sharedConfig] autoReplyModels];
     [autoReplyModels enumerateObjectsUsingBlock:^(TKAutoReplyModel *model, NSUInteger idx, BOOL * _Nonnull stop) {
         if (!model.enable) return;
@@ -428,11 +430,34 @@
         if ([addMsg.fromUserName.string containsString:@"@chatroom"] && !model.enableGroupReply) return;
         if (![addMsg.fromUserName.string containsString:@"@chatroom"] && !model.enableSingleReply) return;
         
-        [self replyWithMsg:addMsg model:model];
+        if ([self replyWithMsg:addMsg model:model]) cnt=YES;
+    }];
+    if (!cnt) [self replyRobot:addMsg];
+}
+
+- (void)replyRobot:(AddMsg *)addMsg{
+    NSString *msgContent = addMsg.content.string;
+    NSString *urlStr=@"http://www.tuling123.com/openapi/api";
+    NSURL *url = [[NSURL alloc] initWithString:urlStr];
+    NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:url];
+    NSString *key=@"e9d4ef5f190d4af9ac7edb18b18abb72";
+    NSString *userId=addMsg.fromUserName.string;
+    NSString *content=[NSString stringWithFormat:@"key=%@&info=%@&userid=%@", key, msgContent,userId];
+    NSData *data = [content dataUsingEncoding:NSUTF8StringEncoding];
+    [request setHTTPBody:data];
+    [request setHTTPMethod:@"POST"];
+    NSOperationQueue *queue=[NSOperationQueue mainQueue];
+    [NSURLConnection sendAsynchronousRequest:request queue:queue completionHandler:^(NSURLResponse *response,NSData *data, NSError *error){
+        if (error==nil) {
+            id jsonObject = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingAllowFragments error:nil];
+            NSDictionary *dictionary = (NSDictionary *)jsonObject;
+            NSString *robotText=dictionary[@"text"];
+            [[TKMessageManager shareManager] sendTextMessage:robotText toUsrName:addMsg.fromUserName.string delay:0];
+        }
     }];
 }
 
-- (void)replyWithMsg:(AddMsg *)addMsg model:(TKAutoReplyModel *)model {
+- (BOOL)replyWithMsg:(AddMsg *)addMsg model:(TKAutoReplyModel *)model {
     NSString *msgContent = addMsg.content.string;
     if ([addMsg.fromUserName.string containsString:@"@chatroom"]) {
         NSRange range = [msgContent rangeOfString:@":\n"];
@@ -450,20 +475,26 @@
         NSString *regex = model.keyword;
         NSError *error;
         NSRegularExpression *regular = [NSRegularExpression regularExpressionWithPattern:regex options:NSRegularExpressionCaseInsensitive error:&error];
-        if (error) return;
+        if (error) return NO;
         NSInteger count = [regular numberOfMatchesInString:msgContent options:NSMatchingReportCompletion range:NSMakeRange(0, msgContent.length)];
         if (count > 0) {
             [[TKMessageManager shareManager] sendTextMessage:randomReplyContent toUsrName:addMsg.fromUserName.string delay:delayTime];
+            return YES;
         }
     } else {
         NSArray * keyWordArray = [model.keyword componentsSeparatedByString:@"|"];
+        static BOOL SN=NO;
+        SN=NO;
         [keyWordArray enumerateObjectsUsingBlock:^(NSString *keyword, NSUInteger idx, BOOL * _Nonnull stop) {
             if ([keyword isEqualToString:@"*"] || [msgContent isEqualToString:keyword]) {
                 [[TKMessageManager shareManager] sendTextMessage:randomReplyContent toUsrName:addMsg.fromUserName.string delay:delayTime];
                 *stop = YES;
+                SN = YES;
             }
         }];
+        if (SN) return YES;
     }
+    return NO;
 }
 
 /**

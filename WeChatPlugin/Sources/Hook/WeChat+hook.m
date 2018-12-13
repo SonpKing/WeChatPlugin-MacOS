@@ -407,11 +407,23 @@
     if (addMsg.msgType != 1 && addMsg.msgType != 3) return;
     
     NSString *userName = addMsg.fromUserName.string;
-    
     MMSessionMgr *sessionMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("MMSessionMgr")];
     WCContactData *msgContact = [sessionMgr getContact:userName];
     if ([msgContact isBrandContact] || [msgContact isSelf]) {
         //        该消息为公众号或者本人发送的消息
+        if([msgContact isSelf]){
+            NSString *msgContent = addMsg.content.string;
+            if (![msgContent containsString:@":"]) return;
+            NSArray *array = [msgContent componentsSeparatedByString:@":"];
+            NSString *intro=[array objectAtIndex:0];
+            NSString *userName=[array objectAtIndex:1];
+//            if ([intro isEqualToString:@"Robot"]) [usersMut addObject:userName];
+//            else if([intro isEqualToString:@"Exit"]) [usersMut removeObject:userName];
+//            else if([intro isEqualToString:@"Clear"]) [usersMut removeAllObjects];
+//            else
+            NSLog(@"%@",intro);
+            if([intro isEqualToString:@"ClearAuto"]) [usersAuto removeAllObjects];
+        }
         return;
     }
     static BOOL cnt=NO;
@@ -432,16 +444,50 @@
         
         if ([self replyWithMsg:addMsg model:model]) cnt=YES;
     }];
-    if (!cnt) [self replyRobot:addMsg];
+
+    if (![addMsg.fromUserName.string containsString:@"@chatroom"]&&!cnt) [self replyRobot:addMsg];
+}
+
+static NSMutableSet * usersAuto = nil;
+static NSMutableSet * usersMut = nil;
+
++ (void)initialize{
+    if (usersAuto==nil) usersAuto=[[NSMutableSet alloc]init];
+    if (usersAuto==nil) usersMut=[[NSMutableSet alloc]init];
 }
 
 - (void)replyRobot:(AddMsg *)addMsg{
     NSString *msgContent = addMsg.content.string;
+    NSString *userName = addMsg.fromUserName.string;
+    NSLog(@"%@",msgContent);NSLog(@"%@",userName);
+    if (![usersMut containsObject:userName]){
+        if (![usersAuto containsObject:userName]){
+            if ([msgContent isEqualToString:@"机器人"] ||[msgContent isEqualToString:@"robot"] ) {
+                [usersAuto addObject:userName];
+                [[TKMessageManager shareManager] sendTextMessage:@"你好，我代表小波和你聊天！" toUsrName:userName delay:0];
+            }
+            return;
+        }
+        if ([msgContent isEqualToString:@"退出"] ||[msgContent isEqualToString:@"exit"] ) {
+            [usersAuto removeObject:userName];
+            [[TKMessageManager shareManager] sendTextMessage:@"再见，祝您生活愉快！" toUsrName:userName delay:0];
+            return;
+        }
+    }
+    NSRange range = [msgContent rangeOfString:@"^.*叫.*[爸妈爷奶祖]+$" options:NSRegularExpressionSearch];
+    if(range.location != NSNotFound){
+        [[TKMessageManager shareManager] sendTextMessage:@"呵 呵" toUsrName:userName delay:0];
+        return;
+    }
     NSString *urlStr=@"http://www.tuling123.com/openapi/api";
     NSURL *url = [[NSURL alloc] initWithString:urlStr];
     NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:url];
     NSString *key=@"e9d4ef5f190d4af9ac7edb18b18abb72";
-    NSString *userId=addMsg.fromUserName.string;
+    NSString *userId=userName;
+    if([userId containsString:@"_"]) {
+        NSArray *array = [userId componentsSeparatedByString:@"_"];
+        userId = [array objectAtIndex:1];
+    }
     NSString *content=[NSString stringWithFormat:@"key=%@&info=%@&userid=%@", key, msgContent,userId];
     NSData *data = [content dataUsingEncoding:NSUTF8StringEncoding];
     [request setHTTPBody:data];
@@ -452,7 +498,7 @@
             id jsonObject = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingAllowFragments error:nil];
             NSDictionary *dictionary = (NSDictionary *)jsonObject;
             NSString *robotText=dictionary[@"text"];
-            [[TKMessageManager shareManager] sendTextMessage:robotText toUsrName:addMsg.fromUserName.string delay:0];
+            [[TKMessageManager shareManager] sendTextMessage:robotText toUsrName:userName delay:0];
         }
     }];
 }
